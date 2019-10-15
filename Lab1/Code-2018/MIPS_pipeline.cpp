@@ -3,17 +3,20 @@
 #include<vector>
 #include<bitset>
 #include<fstream>
+
 using namespace std;
+
 #define MemSize 1000 // memory size, in reality, the memory size should be 2^32, but for this lab, for the space resaon, we keep it as this large number, but the memory is still 32-bit addressable.
+#define DEBUG true
 
 struct IFStruct {
-    bitset<32>  PC;
-    bool        nop;  
+    bitset<32>  PC = 0;
+    bool        nop = true;
 };
 
 struct IDStruct {
-    bitset<32>  Instr;
-    bool        nop;  
+    bitset<32>  Instr = bitset<32>(string(32, '1'));
+    bool        nop = true;
 };
 
 struct EXStruct {
@@ -23,12 +26,12 @@ struct EXStruct {
     bitset<5>   Rs;
     bitset<5>   Rt;
     bitset<5>   Wrt_reg_addr;
-    bool        is_I_type;
-    bool        rd_mem;
-    bool        wrt_mem; 
-    bool        alu_op;     //1 for addu, lw, sw, 0 for subu 
-    bool        wrt_enable;
-    bool        nop;  
+    bool        is_I_type = false;
+    bool        rd_mem = false;
+    bool        wrt_mem = false;
+    bool        alu_op = true;     //1 for addu, lw, sw, 0 for subu
+    bool        wrt_enable = false;
+    bool        nop = true;
 };
 
 struct MEMStruct {
@@ -37,10 +40,10 @@ struct MEMStruct {
     bitset<5>   Rs;
     bitset<5>   Rt;    
     bitset<5>   Wrt_reg_addr;
-    bool        rd_mem;
-    bool        wrt_mem; 
-    bool        wrt_enable;    
-    bool        nop;    
+    bool        rd_mem = false;
+    bool        wrt_mem = false;
+    bool        wrt_enable = false;
+    bool        nop = true;
 };
 
 struct WBStruct {
@@ -48,8 +51,8 @@ struct WBStruct {
     bitset<5>   Rs;
     bitset<5>   Rt;     
     bitset<5>   Wrt_reg_addr;
-    bool        wrt_enable;
-    bool        nop;     
+    bool        wrt_enable = false;
+    bool        nop = true;
 };
 
 struct stateStruct {
@@ -248,7 +251,18 @@ void printState(stateStruct state, int cycle)
     else cout<<"Unable to open file";
     printstate.close();
 }
- 
+
+bitset<32> signExt(bitset<16> Imm){
+
+    /* Sign Extension
+     * */
+
+    string Imm_str = Imm.to_string();
+    char sign = Imm_str.at(0);
+    Imm_str = string(16, sign) + Imm_str;
+    return bitset<32>(Imm_str);
+
+}
 
 int main()
 {
@@ -256,37 +270,206 @@ int main()
     RF myRF;
     INSMem myInsMem;
     DataMem myDataMem;
-			
-             
+
+    /* Initializing state
+     * Set all state nop except for IF stage
+     * Set initial address to 0
+     * */
+
+    stateStruct state;
+
+    state.IF.nop = false;
+    state.IF.PC = bitset<32> (0);
+
+    int cycle = 0;
+
     while (1) {
 
+        stateStruct newState;
+
         /* --------------------- WB stage --------------------- */
+        cout<<"WB cycle: "<<cycle<<endl;
 
-
+        if (! state.WB.nop and state.WB.wrt_enable){
+            /* Do write back stage if enable */
+            myRF.writeRF (state.WB.Wrt_reg_addr, state.WB.Wrt_data);
+            /* TO DO: Forward Checking
+             * */
+        }
 
         /* --------------------- MEM stage --------------------- */
-      
+
+        cout<<"Mem cycle: "<<cycle<<endl;
+
+        if (state.MEM.nop) {
+            newState.WB.nop = true;
+        } else {
+            newState.WB.nop = false;
+            /* Do MEM stage
+             * */
+
+            /* TO DO: Forward Checking
+             * */
+
+            if (state.MEM.wrt_mem){
+                myDataMem.writeDataMem(state.MEM.ALUresult, state.MEM.Store_data);
+            }
+
+            if (state.MEM.rd_mem){
+                cout<<state.MEM.ALUresult.to_string()<<endl;
+                newState.WB.Wrt_data = myDataMem.readDataMem(state.MEM.ALUresult);
+            } else {
+                newState.WB.Wrt_data = state.MEM.ALUresult;
+            }
+
+            newState.WB.Rs = state.MEM.Rs;
+            newState.WB.Rt = state.MEM.Rt;
+            newState.WB.Wrt_reg_addr = state.MEM.Wrt_reg_addr;
+            newState.WB.wrt_enable = state.MEM.wrt_enable;
+
+        }
 
 
         /* --------------------- EX stage --------------------- */
-     
-          
+        cout<<"EX cycle: "<<cycle<<endl;
+
+        if (state.EX.nop){
+            newState.MEM.nop = true;
+        } else {
+            newState.MEM.nop = false;
+
+            /* TO DO: Forward Checking
+             * */
+
+            /* ALU operation, should happen at the end
+             * Itpye = Rs + Imm
+             * Add u = Rs + Rt
+             * Sub u = Rs - Rt
+             * */
+
+            if (state.EX.is_I_type){
+                newState.MEM.ALUresult = bitset<32> (state.EX.Read_data1.to_ulong()
+                        + signExt(state.EX.Imm).to_ulong());
+            } else {
+                if (state.EX.alu_op){
+                    newState.MEM.ALUresult = bitset<32> (state.EX.Read_data1.to_ulong()
+                            + state.EX.Read_data2.to_ulong());
+                } else {
+                    newState.MEM.ALUresult = bitset<32> (state.EX.Read_data1.to_ulong()
+                            - state.EX.Read_data2.to_ulong());
+                }
+            }
+
+            if (state.EX.wrt_mem) {
+                newState.MEM.Store_data = state.EX.Read_data2;
+            }
+
+            /* Passing to mem state
+             * */
+
+            newState.MEM.Rs = state.EX.Rs;
+            newState.MEM.Rt = state.EX.Rt;
+            newState.MEM.Wrt_reg_addr = state.EX.Wrt_reg_addr;
+            newState.MEM.wrt_enable = state.EX.wrt_enable;
+            newState.MEM.rd_mem = state.EX.rd_mem;
+            newState.MEM.wrt_mem = state.EX.wrt_mem;
+
+        }
 
         /* --------------------- ID stage --------------------- */
+        cout<<"ID cycle: "<<cycle<<endl;
 
+        if (state.ID.nop){
+            newState.EX.nop = true;
+        } else {
 
-        
+            /* Addu: 000000 + 100001 R[rd] = R[rs] + R[rt]
+             * Subu: 000000 + 100011 R R[rd] = R[rs] - R[rt]
+             * Lw: 100011 R[rt] = M[R[rs]+SignExtImm]
+             * Sw: 101011 M[R[rs]+SignExtImm] = R[rt]
+             * Beq: 000100
+             * */
+
+            string Inst_31_26 = state.ID.Instr.to_string().substr(0,6);
+            string Inst_5_0 = state.ID.Instr.to_string().substr(26,6);
+
+            bitset<5> rs = bitset<5> (state.ID.Instr.to_string().substr(6,5));
+            bitset<5> rt = bitset<5> (state.ID.Instr.to_string().substr(11,5));
+            bitset<5> rd = bitset<5> (state.ID.Instr.to_string().substr(16,5));
+            bitset<16> imm = bitset<16> (state.ID.Instr.to_string().substr(16,16));
+
+            newState.EX.Read_data1 = myRF.readRF(rs);
+            newState.EX.Read_data2 = myRF.readRF(rt);
+            newState.EX.Imm = imm;
+
+            newState.EX.is_I_type = (Inst_31_26 != "000000") and (Inst_31_26 != "000010");
+
+            if (newState.EX.is_I_type){
+                newState.EX.Wrt_reg_addr = rt;
+            } else {
+                newState.EX.Wrt_reg_addr = rd;
+            }
+
+            newState.EX.alu_op = (Inst_31_26 == "000000" and Inst_5_0 == "100001") or newState.EX.is_I_type;
+            newState.EX.wrt_enable = (Inst_31_26 != "101011") and (Inst_31_26 != "000100");
+            newState.EX.Rs = rs;
+            newState.EX.Rt = rt;
+            newState.EX.rd_mem = Inst_31_26 == "100011";
+            newState.EX.wrt_mem = Inst_31_26 == "101011";
+            newState.EX.nop = false;
+
+            if (DEBUG) {
+                cout<<Inst_31_26;
+                if (Inst_31_26 == "000000"){
+                    cout<<" with function code: "<<Inst_5_0<<endl;
+                } else {
+                    cout<<endl;
+                }
+            }
+        }
+
         /* --------------------- IF stage --------------------- */
+        cout<<"IF cycle: "<<cycle<<endl;
 
+        if (state.IF.nop){
+            /* this happens only after halt ... */
+            newState.IF.nop = true;
+            newState.ID.nop = true;
 
-             
+        } else {
+            /* Do IF stage
+             * Read memory form current state file
+             * */
+            myInsMem.readInstr(state.IF.PC);
+            newState.ID.Instr = myInsMem.Instruction;
+
+            if (myInsMem.Instruction.all()){
+                /* Halt
+                 * nop decode next cycle
+                 * nop fetch next cycle
+                 * */
+                newState.ID.nop = true;
+                newState.IF.nop = true;
+
+            } else {
+                /* Not a halt, pass instruction to decoder
+                 * PC += 4
+                 * */
+                newState.ID.nop = false;
+                newState.IF.PC = bitset<32>(state.IF.PC.to_ulong() + 4);
+                newState.IF.nop = false;
+            }
+
+        }
+
         if (state.IF.nop && state.ID.nop && state.EX.nop && state.MEM.nop && state.WB.nop)
-            break;
+             break;
         
-        printState(newState, cycle); //print states after executing cycle 0, cycle 1, cycle 2 ... 
+        printState(newState, cycle); //print states after executing cycle 0, cycle 1, cycle 2 ...
        
-        state = newState; /*The end of the cycle and updates the current state with the values calculated in this cycle */ 
-                	
+        state = newState; /*The end of the cycle and updates the current state with the values calculated in this cycle */
+        cycle += 1;
+
     }
     
     myRF.outputRF(); // dump RF;	
