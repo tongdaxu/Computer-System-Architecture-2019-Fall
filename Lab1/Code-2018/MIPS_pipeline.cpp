@@ -288,7 +288,6 @@ int main()
         stateStruct newState;
 
         /* --------------------- WB stage --------------------- */
-        cout<<"WB cycle: "<<cycle<<endl;
 
         if (! state.WB.nop and state.WB.wrt_enable){
             /* Do write back stage if enable */
@@ -298,8 +297,6 @@ int main()
         }
 
         /* --------------------- MEM stage --------------------- */
-
-        cout<<"Mem cycle: "<<cycle<<endl;
 
         if (state.MEM.nop) {
             newState.WB.nop = true;
@@ -316,7 +313,6 @@ int main()
             }
 
             if (state.MEM.rd_mem){
-                cout<<state.MEM.ALUresult.to_string()<<endl;
                 newState.WB.Wrt_data = myDataMem.readDataMem(state.MEM.ALUresult);
             } else {
                 newState.WB.Wrt_data = state.MEM.ALUresult;
@@ -331,7 +327,6 @@ int main()
 
 
         /* --------------------- EX stage --------------------- */
-        cout<<"EX cycle: "<<cycle<<endl;
 
         if (state.EX.nop){
             newState.MEM.nop = true;
@@ -339,7 +334,49 @@ int main()
             newState.MEM.nop = false;
 
             /* TO DO: Forward Checking
+             * Only when nop and wrt_enable
+             * In Ex -> Ex stage, lw as parent can be problematic and do a stall !
+             * Do not need to check in WB stage
              * */
+
+            if (!state.WB.nop and state.WB.wrt_enable){
+
+                /* Check the first register !
+                 * */
+
+                if (state.WB.Wrt_reg_addr == state.EX.Rs){
+                    /* Do the forwarding to Op 1
+                     * */
+                    state.EX.Read_data1 = state.WB.Wrt_data;
+                }
+
+                if (!state.EX.is_I_type and state.WB.Wrt_reg_addr == state.EX.Rt){
+                    /* Check the second register !
+                     * */
+                    state.EX.Read_data2 = state.WB.Wrt_data;
+                }
+
+            }
+
+            if (!state.MEM.nop and !state.MEM.rd_mem and state.MEM.wrt_enable){
+                /* Ex -> Ex forwarding have priprity
+                 * if parent is load word (rd_mem = true) in Ex -> Ex, stall, do not forward!
+                 * check if nop
+                 * */
+
+                if (state.MEM.Wrt_reg_addr == state.EX.Rs){
+                    /* Do the forwarding to Op 1
+                     * */
+                    state.EX.Read_data1 = state.WB.Wrt_data;
+                }
+
+                if (!state.EX.is_I_type and state.MEM.Wrt_reg_addr == state.EX.Rs){
+                    /* not an I type instruction
+                     * */
+                    state.EX.Read_data2 = state.MEM.ALUresult;
+                }
+
+            }
 
             /* ALU operation, should happen at the end
              * Itpye = Rs + Imm
@@ -368,8 +405,11 @@ int main()
              * */
 
             newState.MEM.Rs = state.EX.Rs;
+            // which register that rd1 came from
             newState.MEM.Rt = state.EX.Rt;
+            // which register that rd2 came from
             newState.MEM.Wrt_reg_addr = state.EX.Wrt_reg_addr;
+            // which register to write to
             newState.MEM.wrt_enable = state.EX.wrt_enable;
             newState.MEM.rd_mem = state.EX.rd_mem;
             newState.MEM.wrt_mem = state.EX.wrt_mem;
@@ -377,7 +417,6 @@ int main()
         }
 
         /* --------------------- ID stage --------------------- */
-        cout<<"ID cycle: "<<cycle<<endl;
 
         if (state.ID.nop){
             newState.EX.nop = true;
@@ -418,18 +457,52 @@ int main()
             newState.EX.wrt_mem = Inst_31_26 == "101011";
             newState.EX.nop = false;
 
+            /* Stall condition, check the out of EX, if it
+             * */
+
+            bool stall = false;
+
+            if (!state.EX.nop and state.EX.rd_mem and state.EX.Rt == rs){
+                stall = true;
+                cout<<"stall"<<endl;
+            }
+
+            if (stall){
+                /* stall the if and id/rf
+                 * */
+
+                newState.IF = state.IF;
+                newState.ID = state.ID;
+
+                /* push a nop to next stage
+                 * */
+                newState.EX.nop = true;
+            }
+
             if (DEBUG) {
-                cout<<Inst_31_26;
+                cout<<"op code: "<<Inst_31_26;
+
                 if (Inst_31_26 == "000000"){
-                    cout<<" with function code: "<<Inst_5_0<<endl;
+                    cout<<" R type: ";
+                    if (Inst_5_0 == "100001"){
+                        cout<<" addu R["<<rs.to_ulong()<<"] and R["<<rt.to_ulong()<<"]"<<endl;
+                    } else {
+                        cout<<" subu R["<<rs.to_ulong()<<"] and R["<<rt.to_ulong()<<"]"<<endl;
+                    }
+
                 } else {
-                    cout<<endl;
+                    if (Inst_31_26 == "100011"){
+                        cout<<" load memory to R["<<rt.to_ulong()<<"]"<<endl;
+                    }
+
+                    if (Inst_31_26 == "101011"){
+                        cout<<" write to memory R["<<rs.to_ulong()<<"] + "<<imm.to_ulong()<<endl;
+                    }
                 }
             }
         }
 
         /* --------------------- IF stage --------------------- */
-        cout<<"IF cycle: "<<cycle<<endl;
 
         if (state.IF.nop){
             /* this happens only after halt ... */
