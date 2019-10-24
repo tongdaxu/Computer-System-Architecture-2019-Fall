@@ -264,6 +264,18 @@ bitset<32> signExt(bitset<16> Imm){
 
 }
 
+bitset<32> branAddr(bitset<16> Imm){
+
+    /* Sign Extension
+     * */
+
+    string Imm_str = Imm.to_string();
+    char sign = Imm_str.at(0);
+    Imm_str = string(14, sign) + Imm_str + string(2, '0');
+    return bitset<32>(Imm_str);
+
+}
+
 int main()
 {
     
@@ -287,6 +299,8 @@ int main()
 
         stateStruct newState;
 
+        if (DEBUG) cout<<"cycle :"<<cycle<<" begins"<<endl;
+
         /* --------------------- WB stage --------------------- */
 
         if (! state.WB.nop and state.WB.wrt_enable){
@@ -306,9 +320,17 @@ int main()
              * */
 
             /* TO DO: Forward Checking
+             * Only need to concern for sw ?
              * */
+            if (!state.WB.nop and state.WB.wrt_enable) {
+                if (state.MEM.wrt_mem and state.MEM.Rt == state.WB.Wrt_reg_addr){
+                    if (DEBUG) cout<<"MEM -> MEN forwarding "<<state.WB.Wrt_data.to_string()<<" to R["<<state.MEM.Rt.to_ulong()<<"]"<<endl;
+                    state.MEM.Store_data = state.WB.Wrt_data;
+                }
+            }
 
             if (state.MEM.wrt_mem){
+                if (DEBUG) cout<<"writing to M["<<state.MEM.ALUresult.to_ulong()<<"] with value: "<<state.MEM.Store_data.to_string()<<endl;
                 myDataMem.writeDataMem(state.MEM.ALUresult, state.MEM.Store_data);
             }
 
@@ -324,7 +346,6 @@ int main()
             newState.WB.wrt_enable = state.MEM.wrt_enable;
 
         }
-
 
         /* --------------------- EX stage --------------------- */
 
@@ -347,14 +368,17 @@ int main()
                 if (state.WB.Wrt_reg_addr == state.EX.Rs){
                     /* Do the forwarding to Op 1
                      * */
+                    if (DEBUG) cout<<"MEM -> Ex stage forwarding to Rs: "<<state.EX.Rs.to_string()<<endl;
                     state.EX.Read_data1 = state.WB.Wrt_data;
                 }
 
-                if (!state.EX.is_I_type and state.WB.Wrt_reg_addr == state.EX.Rt){
+                if (state.WB.Wrt_reg_addr == state.EX.Rt){
                     /* Check the second register !
                      * */
+                    if (DEBUG) cout<<"MEM -> Ex stage forwarding to Rt: "<<state.EX.Rt.to_string()<<endl;
                     state.EX.Read_data2 = state.WB.Wrt_data;
                 }
+
 
             }
 
@@ -367,13 +391,17 @@ int main()
                 if (state.MEM.Wrt_reg_addr == state.EX.Rs){
                     /* Do the forwarding to Op 1
                      * */
-                    state.EX.Read_data1 = state.WB.Wrt_data;
+                    state.EX.Read_data1 = state.MEM.ALUresult;
+                    if (DEBUG) cout<<"Ex -> Ex stage forwarding to Rs: "<<state.EX.Rs.to_string()<<endl;
+
                 }
 
-                if (!state.EX.is_I_type and state.MEM.Wrt_reg_addr == state.EX.Rs){
+                if (!state.EX.is_I_type and state.MEM.Wrt_reg_addr == state.EX.Rt){
                     /* not an I type instruction
                      * */
                     state.EX.Read_data2 = state.MEM.ALUresult;
+                    cout<<"Ex -> Ex stage forwarding to Rt: "<<state.EX.Rt.to_string()<<endl;
+
                 }
 
             }
@@ -416,7 +444,13 @@ int main()
 
         }
 
-        /* --------------------- ID stage --------------------- */
+        /* --------------------- ID/RF stage --------------------- */
+
+        bool stall = false;
+        bool jump = false;
+        bool isbeq = false;
+
+        bitset<32> branchAddr = bitset<32> (0);
 
         if (state.ID.nop){
             newState.EX.nop = true;
@@ -460,30 +494,40 @@ int main()
             /* Stall condition, check the out of EX, if it
              * */
 
-            bool stall = false;
+            if (!state.EX.nop and state.EX.rd_mem){
 
-            if (!state.EX.nop and state.EX.rd_mem and state.EX.Rt == rs){
-                stall = true;
-                cout<<"stall"<<endl;
+                /* This happens only when a load word instruction is parent !
+                 * when followed by addu/subu, stall if rs/rt = rt
+                 * when followed by sw, stall only if rs = rt
+                 * */
+
+                if (!newState.EX.is_I_type and (state.EX.Rt == rs or state.EX.Rt == rt)) stall = true;
+                if (newState.EX.is_I_type and state.EX.Rt == rs) stall = true;
+
+                if (stall and DEBUG){
+                    cout<<"stall type"<<newState.EX.is_I_type<<endl;
+                    cout<<"stall since Ex rt ["<<state.EX.Rt.to_ulong()<<"] and rs ["<<rs.to_ulong()<<"] rt["<<rt.to_ulong()<<"]"<<endl;
+                }
             }
 
-            if (stall){
-                /* stall the if and id/rf
-                 * */
-
-                newState.IF = state.IF;
-                newState.ID = state.ID;
-
-                /* push a nop to next stage
+            if (Inst_31_26 == "000100"){
+                /* bne instruction!
+                 * Jump if not equal
                  * */
                 newState.EX.nop = true;
+                if (newState.EX.Read_data1 != newState.EX.Read_data2){
+                    jump = true;
+                    branchAddr = branAddr(newState.EX.Imm);
+                    if (DEBUG) cout<<"jump to extra: "<< (int32_t) branchAddr.to_ulong() <<endl;
+                }
+
             }
 
             if (DEBUG) {
                 cout<<"op code: "<<Inst_31_26;
 
                 if (Inst_31_26 == "000000"){
-                    cout<<" R type: ";
+                    cout<<" R type:";
                     if (Inst_5_0 == "100001"){
                         cout<<" addu R["<<rs.to_ulong()<<"] and R["<<rt.to_ulong()<<"]"<<endl;
                     } else {
@@ -535,13 +579,32 @@ int main()
 
         }
 
+        if (stall){
+            /* stall the if and id/rf
+             * */
+            newState.IF = state.IF;
+            newState.ID = state.ID;
+
+            /* push a nop to next stage
+             * */
+            newState.EX.nop = true;
+        }
+
+        if (jump){
+            newState.ID.nop = true;
+            newState.IF.PC = bitset<32>(state.IF.PC.to_ulong() + (int32_t) branchAddr.to_ulong());
+        }
+
         if (state.IF.nop && state.ID.nop && state.EX.nop && state.MEM.nop && state.WB.nop)
              break;
         
         printState(newState, cycle); //print states after executing cycle 0, cycle 1, cycle 2 ...
        
         state = newState; /*The end of the cycle and updates the current state with the values calculated in this cycle */
+
         cycle += 1;
+
+
 
     }
     
