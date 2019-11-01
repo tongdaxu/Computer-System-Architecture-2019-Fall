@@ -6,7 +6,8 @@
 
 using namespace std;
 
-#define MemSize 1000 // memory size, in reality, the memory size should be 2^32, but for this lab, for the space resaon, we keep it as this large number, but the memory is still 32-bit addressable.
+#define MemSize 1000 // memory size, in reality, the memory size should be 2^32, but for this lab,
+//for the space resaon, we keep it as this large number, but the memory is still 32-bit addressable.
 #define DEBUG true
 
 struct IFStruct {
@@ -306,7 +307,8 @@ int main()
         if (! state.WB.nop and state.WB.wrt_enable){
             /* Do write back stage if enable */
             myRF.writeRF (state.WB.Wrt_reg_addr, state.WB.Wrt_data);
-            /* TO DO: Forward Checking
+            if (DEBUG) cout<<" write back " <<state.WB.Wrt_data.to_string()<< " to R["<<state.WB.Wrt_reg_addr.to_ulong()<<"]"<<endl;
+            /* No forward checking here since nothing to Fw
              * */
         }
 
@@ -324,13 +326,16 @@ int main()
              * */
             if (!state.WB.nop and state.WB.wrt_enable) {
                 if (state.MEM.wrt_mem and state.MEM.Rt == state.WB.Wrt_reg_addr){
-                    if (DEBUG) cout<<"MEM -> MEN forwarding "<<state.WB.Wrt_data.to_string()<<" to R["<<state.MEM.Rt.to_ulong()<<"]"<<endl;
+                    if (DEBUG) cout<<"  MEM -> MEN forwarding "<<state.WB.Wrt_data.to_string()<<" to R["<<state.MEM.Rt.to_ulong()<<"]"<<endl;
                     state.MEM.Store_data = state.WB.Wrt_data;
                 }
             }
 
+            /* Hey infack read and write can only happen once per time, or totally no
+             * */
+
             if (state.MEM.wrt_mem){
-                if (DEBUG) cout<<"writing to M["<<state.MEM.ALUresult.to_ulong()<<"] with value: "<<state.MEM.Store_data.to_string()<<endl;
+                if (DEBUG) cout<<" mem write to M["<<state.MEM.ALUresult.to_ulong()<<"] with value: "<<state.MEM.Store_data.to_string()<<endl;
                 myDataMem.writeDataMem(state.MEM.ALUresult, state.MEM.Store_data);
             }
 
@@ -368,14 +373,14 @@ int main()
                 if (state.WB.Wrt_reg_addr == state.EX.Rs){
                     /* Do the forwarding to Op 1
                      * */
-                    if (DEBUG) cout<<"MEM -> Ex stage forwarding to Rs: "<<state.EX.Rs.to_string()<<endl;
+                    if (DEBUG) cout<<"  MEM -> Ex stage forwarding to Rs: "<<state.EX.Rs.to_string()<<endl;
                     state.EX.Read_data1 = state.WB.Wrt_data;
                 }
 
                 if (state.WB.Wrt_reg_addr == state.EX.Rt){
                     /* Check the second register !
                      * */
-                    if (DEBUG) cout<<"MEM -> Ex stage forwarding to Rt: "<<state.EX.Rt.to_string()<<endl;
+                    if (DEBUG) cout<<"  MEM -> Ex stage forwarding to Rt: "<<state.EX.Rt.to_string()<<endl;
                     state.EX.Read_data2 = state.WB.Wrt_data;
                 }
 
@@ -392,7 +397,7 @@ int main()
                     /* Do the forwarding to Op 1
                      * */
                     state.EX.Read_data1 = state.MEM.ALUresult;
-                    if (DEBUG) cout<<"Ex -> Ex stage forwarding to Rs: "<<state.EX.Rs.to_string()<<endl;
+                    if (DEBUG) cout<<"  Ex -> Ex stage forwarding to Rs: "<<state.EX.Rs.to_string()<<endl;
 
                 }
 
@@ -400,10 +405,9 @@ int main()
                     /* not an I type instruction
                      * */
                     state.EX.Read_data2 = state.MEM.ALUresult;
-                    cout<<"Ex -> Ex stage forwarding to Rt: "<<state.EX.Rt.to_string()<<endl;
+                    if (DEBUG) cout<<"  Ex -> Ex stage forwarding to Rt: "<<state.EX.Rt.to_string()<<endl;
 
                 }
-
             }
 
             /* ALU operation, should happen at the end
@@ -414,7 +418,7 @@ int main()
 
             if (state.EX.is_I_type){
                 newState.MEM.ALUresult = bitset<32> (state.EX.Read_data1.to_ulong()
-                        + signExt(state.EX.Imm).to_ulong());
+                        + (int32_t) signExt(state.EX.Imm).to_ulong());
             } else {
                 if (state.EX.alu_op){
                     newState.MEM.ALUresult = bitset<32> (state.EX.Read_data1.to_ulong()
@@ -425,9 +429,13 @@ int main()
                 }
             }
 
+            newState.MEM.Store_data = state.EX.Read_data2;
+
+            /*
             if (state.EX.wrt_mem) {
                 newState.MEM.Store_data = state.EX.Read_data2;
             }
+             */
 
             /* Passing to mem state
              * */
@@ -505,8 +513,8 @@ int main()
                 if (newState.EX.is_I_type and state.EX.Rt == rs) stall = true;
 
                 if (stall and DEBUG){
-                    cout<<"stall type"<<newState.EX.is_I_type<<endl;
-                    cout<<"stall since Ex rt ["<<state.EX.Rt.to_ulong()<<"] and rs ["<<rs.to_ulong()<<"] rt["<<rt.to_ulong()<<"]"<<endl;
+                    cout<<"  stall type"<<newState.EX.is_I_type;
+                    cout<<"  stall since Ex rt ["<<state.EX.Rt.to_ulong()<<"] and rs ["<<rs.to_ulong()<<"] rt["<<rt.to_ulong()<<"]"<<endl;
                 }
             }
 
@@ -524,24 +532,27 @@ int main()
             }
 
             if (DEBUG) {
-                cout<<"op code: "<<Inst_31_26;
 
                 if (Inst_31_26 == "000000"){
-                    cout<<" R type:";
                     if (Inst_5_0 == "100001"){
-                        cout<<" addu R["<<rs.to_ulong()<<"] and R["<<rt.to_ulong()<<"]"<<endl;
+                        cout<<" Decode addu R["<<rs.to_ulong()<<"] and R["<<rt.to_ulong()<<"] to R["<<rd.to_ulong()<<"]"<<endl;
                     } else {
-                        cout<<" subu R["<<rs.to_ulong()<<"] and R["<<rt.to_ulong()<<"]"<<endl;
+                        cout<<" Decode subu R["<<rs.to_ulong()<<"] and R["<<rt.to_ulong()<<"] to R["<<rd.to_ulong()<<"]"<<endl;
                     }
 
                 } else {
                     if (Inst_31_26 == "100011"){
-                        cout<<" load memory to R["<<rt.to_ulong()<<"]"<<endl;
+                        cout<<" Decode load MEM[R["<<rs.to_ulong()<<"] + SignExt "<<imm.to_string()<<"] to R["<<rt.to_ulong()<<"]"<<endl;
                     }
 
                     if (Inst_31_26 == "101011"){
-                        cout<<" write to memory R["<<rs.to_ulong()<<"] + "<<imm.to_ulong()<<endl;
+                        cout<<" Decode write R["<<rt.to_ulong()<<"] to MEM[R["<<rs.to_ulong()<<"] + SignExt "<<imm.to_string()<<"]"<<endl;
                     }
+
+                    if (Inst_31_26 == "101011"){
+                        cout<<" Decode bne R["<<rt.to_ulong()<<"] != R["<<rs.to_ulong()<<"] to Branch Ext "<<imm.to_string()<<endl;
+                    }
+
                 }
             }
         }
@@ -559,6 +570,8 @@ int main()
              * */
             myInsMem.readInstr(state.IF.PC);
             newState.ID.Instr = myInsMem.Instruction;
+
+            if (DEBUG) {cout<<" Fetch "<<myInsMem.Instruction.to_string()<<endl;}
 
             if (myInsMem.Instruction.all()){
                 /* Halt
@@ -603,8 +616,6 @@ int main()
         state = newState; /*The end of the cycle and updates the current state with the values calculated in this cycle */
 
         cycle += 1;
-
-
 
     }
     
