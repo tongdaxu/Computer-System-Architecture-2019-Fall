@@ -1,2 +1,8 @@
+cmake-build-debug/
 .idea/
-.cmake-build-debug/
+Testbenches/
+*.pdf
+*.txt
+*.zip
+*.ppt
+*.pptx

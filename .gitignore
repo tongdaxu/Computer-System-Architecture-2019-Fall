@@ -2,3 +2,9 @@
 cmake-build-debug/
 Testbenches/
 *.docx
+.idea/
+*.pdf
+*.txt
+*.zip
+*.ppt
+*.pptx
