@@ -101,7 +101,7 @@ public:
      * k bits history for each entry
      * */
     vector<vector<SatCounter>> SCs;
-    vector<string> BHs;
+    string GH;
 
     BPB(int m, int k){
         int size = (int) pow(2, m);
@@ -111,8 +111,7 @@ public:
         initializer.resize(length);
         SCs.assign(size, initializer);
 
-        string str_initializer(k, '1');
-        BHs.assign(size, str_initializer);
+        GH = string(k, '1');
     }
 
     void printSatet(){
@@ -179,6 +178,8 @@ public:
 
 int main(int argc, char **argv)
 {
+    /* 9: function name
+     * */
     if (argc != 3){
         cout<<argc<<" arguments, are you sure?"<<endl;
         return 0;
@@ -193,10 +194,11 @@ int main(int argc, char **argv)
     BPB myBPB(my_config.m, my_config.k);
     vector<bool> trace_result;
     int counter = 1;
+    int fault = 0;
 
     for (vector<Branch>::iterator current = my_trace.trace_history.begin(); current != my_trace.trace_history.end(); ++ current){
         int position = stoul (current->address.substr(32 - my_config.m, my_config.m), 0, 2);
-        string history = myBPB.BHs[position];
+        string history = myBPB.GH;
         int history_position = stoul(history, 0, 2);
 
         bool result = current->result;
@@ -206,6 +208,7 @@ int main(int argc, char **argv)
 
         if ((predict != result)){
             cout<<"branch["<<counter<<"] predicted as: "<<predict<<", is actually: "<<result<<endl;
+            ++ fault;
         }
 
         /* update the state machine
@@ -215,12 +218,14 @@ int main(int argc, char **argv)
         myBPB.SCs[position][history_position].nextState(result);
 
         if (result){
-            myBPB.BHs[position] = '1' + history.substr(1, my_config.k - 1);
+            myBPB.GH = '1' + history.substr(1, my_config.k - 1);
         } else {
-            myBPB.BHs[position] = '0' + history.substr(1, my_config.k - 1);
+            myBPB.GH = '0' + history.substr(1, my_config.k - 1);
         }
         ++ counter;
     }
+
+    cout<<"in total out of "<<counter - 1<<" instructions, "<<fault<<" mistakes are made"<<endl;
 
     ofstream trace_out;
     trace_out.open("trace.out");
